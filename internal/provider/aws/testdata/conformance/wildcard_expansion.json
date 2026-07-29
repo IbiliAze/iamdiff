@@ -1,0 +1,12 @@
+{
+  "principal": {"provider": "aws", "kind": "role", "ref": "ConformanceRole"},
+  "documents": [
+    {
+      "kind": "identity",
+      "name": "ReadOnlyS3",
+      "body": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "s3:Get*", "Resource": "*"}
+      ]}
+    }
+  ]
+}

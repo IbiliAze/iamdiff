@@ -1,0 +1,19 @@
+{
+  "principal": {"provider": "aws", "kind": "role", "ref": "ConformanceRole"},
+  "documents": [
+    {
+      "kind": "identity",
+      "name": "AllowS3",
+      "body": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["s3:GetObject", "s3:DeleteObject"], "Resource": "*"}
+      ]}
+    },
+    {
+      "kind": "identity",
+      "name": "DenyDeletes",
+      "body": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Deny", "Action": "s3:DeleteObject", "Resource": "*"}
+      ]}
+    }
+  ]
+}

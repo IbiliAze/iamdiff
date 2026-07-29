@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+
+  # Enforces the layering rule mechanically rather than by discipline:
+  # internal/core must never import internal/provider/*.
+  layering:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.22'}
+      - name: core must not depend on any provider
+        run: |
+          if go list -deps ./internal/core/... | grep -q 'internal/provider'; then
+            echo "::error::internal/core imports internal/provider - the abstraction has leaked"
+            exit 1
+          fi

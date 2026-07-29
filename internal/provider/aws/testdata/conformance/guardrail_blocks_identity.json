@@ -1,0 +1,20 @@
+{
+  "principal": {"provider": "aws", "kind": "role", "ref": "ConformanceRole"},
+  "documents": [
+    {
+      "kind": "identity",
+      "name": "BroadAccess",
+      "body": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": ["s3:GetObject", "ec2:TerminateInstances"], "Resource": "*"}
+      ]}
+    },
+    {
+      "kind": "guardrail",
+      "name": "ou-prod/NoCompute",
+      "inherited": ["o-root", "ou-prod"],
+      "body": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "s3:*", "Resource": "*"}
+      ]}
+    }
+  ]
+}

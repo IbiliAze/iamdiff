@@ -1,0 +1,13 @@
+{
+  "principal": {"provider": "aws", "kind": "role", "ref": "ConformanceRole"},
+  "gaps": ["organizations:ListPoliciesForTarget denied - SCPs not evaluated"],
+  "documents": [
+    {
+      "kind": "identity",
+      "name": "SomeAccess",
+      "body": {"Version": "2012-10-17", "Statement": [
+        {"Effect": "Allow", "Action": "s3:GetObject", "Resource": "*"}
+      ]}
+    }
+  ]
+}
