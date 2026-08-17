@@ -11,7 +11,7 @@ import (
 	"fmt"
 
 	"github.com/IbiliAze/iamdiff/internal/catalogue"
-	"github.com/IbiliAze/iamdiff/internal/core/model"
+	"github.com/IbiliAze/iamdiff/internal/model"
 	"github.com/IbiliAze/iamdiff/internal/provider"
 )
 

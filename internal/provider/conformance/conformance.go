@@ -10,7 +10,7 @@
 package conformance
 
 import (
-	"github.com/IbiliAze/iamdiff/internal/core/model"
+	"github.com/IbiliAze/iamdiff/internal/model"
 )
 
 // TB is the subset of testing.TB used here, so this package does not

@@ -8,8 +8,8 @@ import (
 	"io"
 
 	"github.com/IbiliAze/iamdiff/internal/catalogue"
-	"github.com/IbiliAze/iamdiff/internal/core/diff"
-	"github.com/IbiliAze/iamdiff/internal/core/severity"
+	"github.com/IbiliAze/iamdiff/internal/diff"
+	"github.com/IbiliAze/iamdiff/internal/severity"
 )
 
 type Renderer interface {

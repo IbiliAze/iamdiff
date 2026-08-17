@@ -1,8 +1,0 @@
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {"Effect": "Allow", "Action": "s3:Get*", "Resource": "arn:aws:s3:::sls2-assets/*"},
-    {"Effect": "Allow", "Action": "sts:AssumeRole", "Resource": "*",
-     "Condition": {"Bool": {"aws:MultiFactorAuthPresent": "true"}}}
-  ]
-}

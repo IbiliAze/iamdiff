@@ -21,7 +21,11 @@ jobs:
       - run: go test -race -count=1 ./...
 
   # Enforces the layering rule mechanically rather than by discipline:
-  # internal/core must never import internal/provider/*.
+  # no core package may import internal/provider/*.
+  #
+  # "Core" is defined by subtraction -- every internal package that is not
+  # under internal/provider -- so a core package added later is covered
+  # automatically and cannot quietly escape the rule.
   layering:
     runs-on: ubuntu-latest
     steps:
@@ -30,7 +34,17 @@ jobs:
         with: {go-version: '1.22'}
       - name: core must not depend on any provider
         run: |
-          if go list -deps ./internal/core/... | grep -q 'internal/provider'; then
-            echo "::error::internal/core imports internal/provider - the abstraction has leaked"
+          set -euo pipefail
+          mapfile -t core < <(go list ./internal/... | grep -v '/internal/provider')
+          if [ ${#core[@]} -eq 0 ]; then
+            echo "::error::found no core packages to check - the layering guard is not running"
+            exit 1
+          fi
+          printf 'checking: %s\n' "${core[@]}"
+          # Not piped directly into grep: under set -e a go list failure must
+          # abort here, rather than yielding no output and a false pass.
+          deps=$(go list -deps "${core[@]}")
+          if grep -q 'iamdiff/internal/provider' <<<"$deps"; then
+            echo "::error::a core package imports internal/provider - the abstraction has leaked"
             exit 1
           fi

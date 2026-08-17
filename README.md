@@ -4,8 +4,8 @@ Effective cloud IAM permissions diff and explanation.
 
 `iamdiff` resolves what a principal **can actually do** by composing identity
 policies, permissions boundaries and organisation guardrails, then diffs two
-resolved sets. It answers one question inside a pull request review: *did this
-change widen access, and why?*
+resolved sets. It answers one question inside a pull request review: _did this
+change widen access, and why?_
 
 ```
 $ iamdiff policy before.json after.json
@@ -45,23 +45,23 @@ go install github.com/IbiliAze/iamdiff/cmd/iamdiff@latest
 
 ## Commands
 
-| Command | Status |
-|---|---|
+| Command                            | Status                            |
+| ---------------------------------- | --------------------------------- |
 | `iamdiff policy <a.json> <b.json>` | working — offline, no credentials |
-| `iamdiff providers` | working |
-| `iamdiff roles <a> <b>` | phase 3 |
-| `iamdiff plan <plan.json>` | phase 4 |
-| `iamdiff explain <principal>` | phase 5 |
+| `iamdiff providers`                | working                           |
+| `iamdiff roles <a> <b>`            | phase 3                           |
+| `iamdiff plan <plan.json>`         | phase 4                           |
+| `iamdiff explain <principal>`      | phase 5                           |
 
 ## Exit codes
 
-| Code | Meaning |
-|---|---|
-| 0 | unchanged |
-| 1 | narrowed only |
-| 2 | **widened** |
-| 3 | indeterminate — conditions changed |
-| 4 | incomplete — a policy source was unreachable |
+| Code | Meaning                                      |
+| ---- | -------------------------------------------- |
+| 0    | unchanged                                    |
+| 1    | narrowed only                                |
+| 2    | **widened**                                  |
+| 3    | indeterminate — conditions changed           |
+| 4    | incomplete — a policy source was unreachable |
 
 Exit code 4 matters. If credentials cannot reach the Organizations API,
 `iamdiff` says so loudly and refuses to imply a complete answer.

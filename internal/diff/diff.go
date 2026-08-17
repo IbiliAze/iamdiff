@@ -7,7 +7,7 @@ package diff
 import (
 	"sort"
 
-	"github.com/IbiliAze/iamdiff/internal/core/model"
+	"github.com/IbiliAze/iamdiff/internal/model"
 )
 
 type Kind uint8

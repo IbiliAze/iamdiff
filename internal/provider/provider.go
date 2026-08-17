@@ -12,7 +12,7 @@ import (
 	"errors"
 
 	"github.com/IbiliAze/iamdiff/internal/catalogue"
-	"github.com/IbiliAze/iamdiff/internal/core/model"
+	"github.com/IbiliAze/iamdiff/internal/model"
 )
 
 // ErrUnsupported is returned by capabilities a provider has not

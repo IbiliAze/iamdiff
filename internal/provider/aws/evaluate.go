@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/IbiliAze/iamdiff/internal/core/model"
+	"github.com/IbiliAze/iamdiff/internal/model"
 	"github.com/IbiliAze/iamdiff/internal/provider"
 )
 
