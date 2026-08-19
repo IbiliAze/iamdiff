@@ -39,6 +39,9 @@ func New(cfg provider.Config) (provider.Provider, error) {
 
 func (p *Provider) Name() string                   { return Name }
 func (p *Provider) Catalogue() catalogue.Catalogue { return p.cat }
+func (p *Provider) Explain(ctx context.Context, raw *provider.RawSet, action string) (*model.Trace, error) {
+	return &model.Trace{}, nil
+}
 
 // FromDocuments builds a RawSet with no credentials. This is what powers
 // `iamdiff policy a.json b.json`.
@@ -57,5 +60,6 @@ func (p *Provider) Collect(ctx context.Context, sel provider.Selector) (*provide
 var (
 	_ provider.Provider      = (*Provider)(nil)
 	_ provider.Cataloguer    = (*Provider)(nil)
+	_ provider.Explainer     = (*Provider)(nil)
 	_ provider.OfflineLoader = (*Provider)(nil)
 )
