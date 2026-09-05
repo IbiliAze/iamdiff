@@ -22,12 +22,27 @@ THE SOFTWARE.
 package main
 
 import (
+	"context"
+	"os"
+	"os/signal"
+
 	"github.com/IbiliAze/iamdiff/cmd"
 
 	// Providers register themselves here. Adding a cloud is one import.
 	_ "github.com/IbiliAze/iamdiff/internal/provider/aws"
 )
 
+// Set by the linker at release time; see .goreleaser.yaml.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
-	cmd.Execute()
+	cmd.SetVersion(version, commit, date)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	code := cmd.Execute(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }

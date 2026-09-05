@@ -13,12 +13,13 @@ type Document struct {
 }
 
 type Statement struct {
-	Sid       string          `json:"Sid,omitempty"`
-	Effect    string          `json:"Effect"`
-	Action    StringOrSlice   `json:"Action,omitempty"`
-	NotAction StringOrSlice   `json:"NotAction,omitempty"`
-	Resource  StringOrSlice   `json:"Resource,omitempty"`
-	Condition json.RawMessage `json:"Condition,omitempty"`
+	Sid         string          `json:"Sid,omitempty"`
+	Effect      string          `json:"Effect"`
+	Action      StringOrSlice   `json:"Action,omitempty"`
+	NotAction   StringOrSlice   `json:"NotAction,omitempty"`
+	Resource    StringOrSlice   `json:"Resource,omitempty"`
+	NotResource StringOrSlice   `json:"NotResource,omitempty"`
+	Condition   json.RawMessage `json:"Condition,omitempty"`
 }
 
 // StringOrSlice accepts either a JSON string or an array of strings.
@@ -38,10 +39,19 @@ func (s *StringOrSlice) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// statements accepts a single statement object as well as an array,
+// which AWS permits.
 func parseDocument(b []byte) (*Document, error) {
 	var d Document
-	if err := json.Unmarshal(b, &d); err != nil {
+	if err := json.Unmarshal(b, &d); err == nil {
+		return &d, nil
+	}
+	var single struct {
+		Version   string    `json:"Version"`
+		Statement Statement `json:"Statement"`
+	}
+	if err := json.Unmarshal(b, &single); err != nil {
 		return nil, fmt.Errorf("aws: parse policy document: %w", err)
 	}
-	return &d, nil
+	return &Document{Version: single.Version, Statement: []Statement{single.Statement}}, nil
 }

@@ -21,10 +21,15 @@ type TB interface {
 }
 
 // Expectation describes the required outcome of a scenario.
+//
+// Conditional keys must be permitted and carry a condition; Unconditional
+// keys must be permitted without one. Both imply Contains.
 type Expectation struct {
-	Contains []model.GrantKey
-	Excludes []model.GrantKey
-	Partial  bool
+	Contains      []model.GrantKey
+	Excludes      []model.GrantKey
+	Conditional   []model.GrantKey
+	Unconditional []model.GrantKey
+	Partial       bool
 }
 
 // Case is one scenario. Every provider ships a fixture named Name.
@@ -75,6 +80,67 @@ func Cases() []Case {
 			Rationale: "If any policy source could not be read, the result must be flagged partial. Silently returning an incomplete set is the one unacceptable failure.",
 			Want:      Expectation{Partial: true},
 		},
+		{
+			Name:      "deny_pattern_covers_specific",
+			Rationale: "A deny on a broad resource pattern must remove an allow on any resource inside it. Matching denies by exact key would let a specific allow slip past a general deny.",
+			Want: Expectation{
+				Excludes: []model.GrantKey{key("s3:DeleteObject", "arn:aws:s3:::bucket/*")},
+				Contains: []model.GrantKey{key("s3:GetObject", "arn:aws:s3:::bucket/*")},
+			},
+		},
+		{
+			Name:      "deny_on_other_resource_is_disjoint",
+			Rationale: "A deny on an unrelated resource must not touch a grant, conditionally or otherwise. Over-eager denies would hide real access.",
+			Want: Expectation{
+				Unconditional: []model.GrantKey{key("s3:GetObject", "arn:aws:s3:::a/*")},
+			},
+		},
+		{
+			Name:      "guardrail_levels_intersect",
+			Rationale: "Guardrails attached at different levels of a hierarchy must all permit an action; one permissive level cannot restore what another removes.",
+			Want: Expectation{
+				Contains: []model.GrantKey{key("s3:GetObject", "*")},
+				Excludes: []model.GrantKey{key("ec2:DescribeInstances", "*")},
+			},
+		},
+		{
+			Name:      "guardrail_same_level_unions",
+			Rationale: "Guardrails attached at the same level union, exactly as several policies attached to one target do.",
+			Want: Expectation{
+				Contains: []model.GrantKey{key("s3:GetObject", "*"), key("ec2:DescribeInstances", "*")},
+				Excludes: []model.GrantKey{key("iam:GetRole", "*")},
+			},
+		},
+		{
+			Name:      "guardrail_narrows_resource",
+			Rationale: "A guardrail that permits a subset of the resources an identity grant names narrows the grant to that subset rather than dropping it or keeping it whole.",
+			Want: Expectation{
+				Contains: []model.GrantKey{key("s3:GetObject", "arn:aws:s3:::bucket/*")},
+				Excludes: []model.GrantKey{key("s3:GetObject", "*")},
+			},
+		},
+		{
+			Name:      "conditional_deny_composes_not_suppresses",
+			Rationale: "Conditions are opaque, so a conditional deny cannot be known to apply. It must attach to the grant as a condition, never silently remove it, and never be silently ignored.",
+			Want: Expectation{
+				Conditional: []model.GrantKey{key("s3:GetObject", "*")},
+			},
+		},
+		{
+			Name:      "unconditional_allow_wins",
+			Rationale: "When one statement allows a key unconditionally and another allows it under a condition, the effective grant is unconditional whatever the statement order.",
+			Want: Expectation{
+				Unconditional: []model.GrantKey{key("s3:GetObject", "*")},
+			},
+		},
+		{
+			Name:      "unknown_wildcard_marks_partial",
+			Rationale: "A wildcard the catalogue cannot expand grants something the tool cannot see. That is a gap, not an empty set.",
+			Want: Expectation{
+				Contains: []model.GrantKey{key("s3:GetObject", "*")},
+				Partial:  true,
+			},
+		},
 	}
 }
 
@@ -94,6 +160,20 @@ func Check(t TB, c Case, got *model.EffectiveSet) {
 	for _, notWant := range c.Want.Excludes {
 		if allowed[notWant] {
 			t.Errorf("%s: expected %s on %s NOT to be permitted, it was", c.Name, notWant.Action, notWant.Resource)
+		}
+	}
+	for _, want := range c.Want.Conditional {
+		if !allowed[want] {
+			t.Errorf("%s: expected %s on %s to be permitted under a condition, it was not permitted", c.Name, want.Action, want.Resource)
+		} else if got.Grants[want].Condition.Empty() {
+			t.Errorf("%s: expected %s on %s to carry a condition, it was unconditional", c.Name, want.Action, want.Resource)
+		}
+	}
+	for _, want := range c.Want.Unconditional {
+		if !allowed[want] {
+			t.Errorf("%s: expected %s on %s to be permitted, it was not", c.Name, want.Action, want.Resource)
+		} else if !got.Grants[want].Condition.Empty() {
+			t.Errorf("%s: expected %s on %s to be unconditional, it carries %q", c.Name, want.Action, want.Resource, got.Grants[want].Condition.Summary)
 		}
 	}
 	if got.Partial != c.Want.Partial {

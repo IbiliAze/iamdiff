@@ -1,0 +1,42 @@
+{
+  "principal": {
+    "provider": "aws",
+    "kind": "role",
+    "ref": "ConformanceRole"
+  },
+  "documents": [
+    {
+      "kind": "identity",
+      "name": "Read",
+      "body": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "s3:GetObject",
+            "Resource": "*"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "identity",
+      "name": "DenyWithoutMFA",
+      "body": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Deny",
+            "Action": "s3:GetObject",
+            "Resource": "*",
+            "Condition": {
+              "BoolIfExists": {
+                "aws:MultiFactorAuthPresent": "false"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -6,13 +6,13 @@ before:
     - go mod tidy
 
 builds:
-  - main: ./cmd/iamdiff
+  - main: .
     binary: iamdiff
     env: [CGO_ENABLED=0]
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
 archives:
   - formats: [tar.gz]
@@ -23,18 +23,24 @@ archives:
 checksum:
   name_template: checksums.txt
 
-# Distribution is the tell that separates a tool from a script.
-brews:
-  - repository:
+# Distribution is the tell that separates a tool from a script. The tap
+# needs a token with write access to IbiliAze/homebrew-tap; the default
+# actions token cannot push to another repository.
+homebrew_casks:
+  - name: iamdiff
+    repository:
       owner: IbiliAze
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: https://github.com/IbiliAze/iamdiff
     description: Effective cloud IAM permissions diff and explanation
-
-dockers:
-  - image_templates:
-      - ghcr.io/ibiliaze/iamdiff:{{ .Version }}
-      - ghcr.io/ibiliaze/iamdiff:latest
+    # The binary is not notarised; without this Gatekeeper quarantines it.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/iamdiff"]
+          end
 
 changelog:
   sort: asc

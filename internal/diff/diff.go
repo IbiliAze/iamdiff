@@ -127,8 +127,10 @@ func (r Result) Verdict() Verdict {
 	}
 }
 
-func (r Result) ExitCode() int {
-	switch r.Verdict() {
+func (r Result) ExitCode() int { return exitCode(r.Verdict()) }
+
+func exitCode(v Verdict) int {
+	switch v {
 	case VerdictIncomplete:
 		return ExitIncomplete
 	case VerdictWidened:

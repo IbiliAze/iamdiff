@@ -1,0 +1,57 @@
+{
+  "principal": {
+    "provider": "aws",
+    "kind": "role",
+    "ref": "ConformanceRole"
+  },
+  "documents": [
+    {
+      "kind": "identity",
+      "name": "Broad",
+      "body": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:GetObject",
+              "ec2:DescribeInstances",
+              "iam:GetRole"
+            ],
+            "Resource": "*"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "guardrail",
+      "name": "AllowS3",
+      "target": "ou-prod",
+      "body": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "s3:*",
+            "Resource": "*"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "guardrail",
+      "name": "AllowEC2",
+      "target": "ou-prod",
+      "body": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "ec2:*",
+            "Resource": "*"
+          }
+        ]
+      }
+    }
+  ]
+}

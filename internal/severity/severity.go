@@ -52,6 +52,9 @@ func Classify(c catalogue.Catalogue, action string, extra []string) Rank {
 			return High
 		}
 	}
+	if c == nil {
+		return Low
+	}
 	switch c.AccessLevel(action) {
 	case catalogue.LevelPermissionsMgmt:
 		return High

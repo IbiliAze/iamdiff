@@ -1,0 +1,40 @@
+{
+  "principal": {
+    "provider": "aws",
+    "kind": "role",
+    "ref": "ConformanceRole"
+  },
+  "documents": [
+    {
+      "kind": "identity",
+      "name": "BucketAccess",
+      "body": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": [
+              "s3:GetObject",
+              "s3:DeleteObject"
+            ],
+            "Resource": "arn:aws:s3:::bucket/*"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "identity",
+      "name": "NoDeletesAnywhere",
+      "body": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Deny",
+            "Action": "s3:DeleteObject",
+            "Resource": "*"
+          }
+        ]
+      }
+    }
+  ]
+}

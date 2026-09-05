@@ -52,10 +52,15 @@ type Origin struct {
 
 // Condition is opaque to the core. It is compared by fingerprint only;
 // semantic equivalence is an explicit non-goal (see docs/adr/0002).
+//
+// A condition is either a statement's own condition block or a
+// composition of clauses (see ComposeCondition); Parts is set only for
+// the latter.
 type Condition struct {
 	Raw         json.RawMessage `json:"raw,omitempty"`
 	Fingerprint string          `json:"fingerprint,omitempty"`
 	Summary     string          `json:"summary,omitempty"`
+	Parts       []ConditionPart `json:"parts,omitempty"`
 }
 
 // NewCondition canonicalises a raw condition document and fingerprints it.
@@ -130,12 +135,37 @@ func NewEffectiveSet(p Principal) *EffectiveSet {
 // deny on a key is never overwritten by a later allow. Every cloud
 // examined shares this rule, so it belongs in the core rather than in
 // each provider.
+//
+// Two allows on the same key merge to the broader one: an unconditional
+// allow beats a conditional allow whatever order they arrive in, and two
+// different conditions compose as "any", since the grant holds under
+// either. Letting the later statement win would let a conditional grant
+// hide an unconditional one behind a condition-changed verdict.
 func (s *EffectiveSet) Add(g Grant) {
 	k := g.Key()
-	if existing, ok := s.Grants[k]; ok && existing.Effect == Deny {
+	existing, ok := s.Grants[k]
+	if !ok || existing.Effect == Deny {
+		if !ok {
+			s.Grants[k] = g
+		}
 		return
 	}
-	s.Grants[k] = g
+	if g.Effect == Deny {
+		s.Grants[k] = g
+		return
+	}
+	switch {
+	case existing.Condition.Empty():
+		return
+	case g.Condition.Empty():
+		s.Grants[k] = g
+	case existing.Condition.Fingerprint == g.Condition.Fingerprint:
+		return
+	default:
+		merged := existing
+		merged.Condition = Any(existing.Condition, g.Condition)
+		s.Grants[k] = merged
+	}
 }
 
 // MarkGap records an unreachable source and flags the set as partial.
@@ -165,14 +195,26 @@ func sortKeys(keys []GrantKey) {
 	})
 }
 
-// Trace is the output of explain mode.
+// Trace is the output of explain mode: the layers that decided whether
+// one principal may take one action on one resource.
+//
+// Conditional means the action is permitted only while some condition
+// holds; which one is in Condition, opaque as ever. Partial means a
+// source could not be read, so a denial may be wrong and a permission
+// may be missing a restriction.
 type Trace struct {
-	Principal Principal `json:"principal"`
-	Action    string    `json:"action"`
-	Permitted bool      `json:"permitted"`
-	Steps     []Step    `json:"steps"`
+	Principal   Principal `json:"principal"`
+	Action      string    `json:"action"`
+	Resource    string    `json:"resource"`
+	Permitted   bool      `json:"permitted"`
+	Conditional bool      `json:"conditional,omitempty"`
+	Condition   string    `json:"condition,omitempty"`
+	Partial     bool      `json:"partial,omitempty"`
+	Gaps        []string  `json:"gaps,omitempty"`
+	Steps       []Step    `json:"steps"`
 }
 
+// Step is one layer's contribution to the decision.
 type Step struct {
 	Layer   string `json:"layer"`
 	Name    string `json:"name"`

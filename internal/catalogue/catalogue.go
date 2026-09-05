@@ -9,9 +9,10 @@ package catalogue
 import (
 	"encoding/json"
 	"fmt"
-	"path"
 	"sort"
 	"strings"
+
+	"github.com/IbiliAze/iamdiff/internal/glob"
 )
 
 // Level is the provider's own classification of an action. It gives a
@@ -29,6 +30,9 @@ const (
 
 // Catalogue is implemented once per cloud.
 type Catalogue interface {
+	// Expand resolves a possibly-wildcarded pattern into the concrete
+	// actions it names. A pattern that matches nothing yields an empty
+	// slice and no error: the caller decides whether that is a gap.
 	Expand(pattern string) ([]string, error)
 	AccessLevel(action string) Level
 	Version() string
@@ -45,7 +49,9 @@ type Action struct {
 type Static struct {
 	version string
 	actions []Action
+	lower   []string // actions[i].Name lower-cased, for wildcard matching
 	byName  map[string]Level
+	canon   map[string]string // lower-cased name -> catalogue spelling
 }
 
 type snapshot struct {
@@ -53,24 +59,59 @@ type snapshot struct {
 	Actions []Action `json:"actions"`
 }
 
-// Load parses an embedded catalogue snapshot.
+// Load parses an embedded catalogue snapshot. Names that differ only by
+// case collapse to one entry, preferring whichever carries a level:
+// policy documents are case-insensitive, so the catalogue must be too.
 func Load(raw []byte) (*Static, error) {
 	var s snapshot
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return nil, fmt.Errorf("catalogue: parse snapshot: %w", err)
 	}
-	c := &Static{version: s.Version, actions: s.Actions, byName: make(map[string]Level, len(s.Actions))}
+	c := &Static{
+		version: s.Version,
+		byName:  make(map[string]Level, len(s.Actions)),
+		canon:   make(map[string]string, len(s.Actions)),
+	}
+	index := make(map[string]int, len(s.Actions))
 	for _, a := range s.Actions {
-		c.byName[strings.ToLower(a.Name)] = a.Level
+		if a.Level == "" {
+			a.Level = LevelUnknown
+		}
+		key := strings.ToLower(a.Name)
+		if i, dup := index[key]; dup {
+			if c.actions[i].Level == LevelUnknown && a.Level != LevelUnknown {
+				c.actions[i] = a
+				c.byName[key] = a.Level
+				c.canon[key] = a.Name
+			}
+			continue
+		}
+		index[key] = len(c.actions)
+		c.actions = append(c.actions, a)
+		c.byName[key] = a.Level
+		c.canon[key] = a.Name
 	}
 	sort.Slice(c.actions, func(i, j int) bool { return c.actions[i].Name < c.actions[j].Name })
+	c.lower = make([]string, len(c.actions))
+	for i, a := range c.actions {
+		c.lower[i] = strings.ToLower(a.Name)
+	}
 	return c, nil
 }
 
 func (c *Static) Version() string { return c.version }
 
+// Len reports the number of distinct actions in the catalogue.
+func (c *Static) Len() int { return len(c.actions) }
+
 // Expand resolves a possibly-wildcarded pattern into concrete actions.
 // Matching is case-insensitive because policy documents are.
+//
+// A concrete action comes back in the catalogue's spelling, so two
+// documents that write it differently agree. One the catalogue has never
+// heard of is passed through rather than dropped: a stale catalogue must
+// never silently hide a real permission. A wildcard that matches nothing
+// returns an empty slice so the caller can record a gap.
 func (c *Static) Expand(pattern string) ([]string, error) {
 	if pattern == "" {
 		return nil, fmt.Errorf("catalogue: empty action pattern")
@@ -82,27 +123,18 @@ func (c *Static) Expand(pattern string) ([]string, error) {
 		}
 		return out, nil
 	}
-	if !strings.ContainsAny(pattern, "*?") {
-		if _, ok := c.byName[strings.ToLower(pattern)]; !ok {
-			// Unknown actions are passed through rather than dropped: a
-			// stale catalogue must never silently hide a real permission.
-			return []string{pattern}, nil
+	if glob.IsLiteral(pattern) {
+		if name, ok := c.canon[strings.ToLower(pattern)]; ok {
+			return []string{name}, nil
 		}
 		return []string{pattern}, nil
 	}
 	lower := strings.ToLower(pattern)
 	var out []string
-	for _, a := range c.actions {
-		ok, err := path.Match(lower, strings.ToLower(a.Name))
-		if err != nil {
-			return nil, fmt.Errorf("catalogue: bad pattern %q: %w", pattern, err)
-		}
-		if ok {
+	for i, a := range c.actions {
+		if glob.Match(lower, c.lower[i], false) {
 			out = append(out, a.Name)
 		}
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("catalogue: pattern %q matched no known action (catalogue %s)", pattern, c.version)
 	}
 	return out, nil
 }

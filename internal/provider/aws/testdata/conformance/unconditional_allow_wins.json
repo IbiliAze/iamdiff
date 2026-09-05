@@ -1,0 +1,33 @@
+{
+  "principal": {
+    "provider": "aws",
+    "kind": "role",
+    "ref": "ConformanceRole"
+  },
+  "documents": [
+    {
+      "kind": "identity",
+      "name": "ConditionalFirst",
+      "body": {
+        "Version": "2012-10-17",
+        "Statement": [
+          {
+            "Effect": "Allow",
+            "Action": "s3:GetObject",
+            "Resource": "*",
+            "Condition": {
+              "Bool": {
+                "aws:MultiFactorAuthPresent": "true"
+              }
+            }
+          },
+          {
+            "Effect": "Allow",
+            "Action": "s3:GetObject",
+            "Resource": "*"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,19 +1,21 @@
-// Package render turns a diff result into output. Renderers are
+// Package render turns a diff report into output. Renderers are
 // interchangeable and know nothing about any cloud.
 package render
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 
 	"github.com/IbiliAze/iamdiff/internal/catalogue"
 	"github.com/IbiliAze/iamdiff/internal/diff"
+	"github.com/IbiliAze/iamdiff/internal/model"
 	"github.com/IbiliAze/iamdiff/internal/severity"
 )
 
 type Renderer interface {
-	Render(w io.Writer, r diff.Result) error
+	Render(w io.Writer, r diff.Report) error
 }
 
 // New selects a renderer by name.
@@ -30,9 +32,35 @@ func New(format string, cat catalogue.Catalogue) (Renderer, error) {
 	}
 }
 
+// label names a principal in a report with several.
+func label(p model.Principal) string {
+	if p.Kind == "" {
+		return p.Ref
+	}
+	return p.Kind + "/" + p.Ref
+}
+
 type Text struct{ cat catalogue.Catalogue }
 
-func (t *Text) Render(w io.Writer, r diff.Result) error {
+func (t *Text) Render(w io.Writer, rep diff.Report) error {
+	var buf bytes.Buffer
+	multi := len(rep.Entries) > 1
+	if len(rep.Entries) == 0 {
+		fmt.Fprintln(&buf, "No principals to compare.")
+		fmt.Fprintln(&buf)
+	}
+	for _, e := range rep.Entries {
+		if multi {
+			fmt.Fprintf(&buf, "== %s: %s ==\n\n", label(e.Principal), e.Result.Verdict())
+		}
+		t.result(&buf, e.Result)
+	}
+	fmt.Fprintf(&buf, "VERDICT: %s\n", rep.Verdict())
+	_, err := w.Write(buf.Bytes())
+	return err
+}
+
+func (t *Text) result(w *bytes.Buffer, r diff.Result) {
 	if r.Partial {
 		fmt.Fprintln(w, "INCOMPLETE - some policy sources could not be read:")
 		for _, g := range r.Gaps {
@@ -42,16 +70,44 @@ func (t *Text) Render(w io.Writer, r diff.Result) error {
 	}
 	if r.Empty() {
 		fmt.Fprintln(w, "No effective permission change.")
+		fmt.Fprintln(w)
 	}
-	section(w, t.cat, "Added", r.Added)
-	section(w, t.cat, "Removed", r.Removed)
-	section(w, t.cat, "Condition changed - review manually", r.Changed)
-
-	fmt.Fprintf(w, "\nVERDICT: %s\n", r.Verdict())
-	return nil
+	showVia := multipleSources(r)
+	section(w, t.cat, "Added", r.Added, showVia)
+	section(w, t.cat, "Removed", r.Removed, showVia)
+	section(w, t.cat, "Condition changed - review manually", r.Changed, showVia)
 }
 
-func section(w io.Writer, cat catalogue.Catalogue, title string, deltas []diff.Delta) {
+// multipleSources reports whether either side of the comparison draws
+// on more than one named source. The "via" column only earns its space
+// when it tells a principal's documents apart; for a single document per
+// side it would repeat the file name on every line.
+func multipleSources(r diff.Result) bool {
+	before, after := map[string]bool{}, map[string]bool{}
+	for _, group := range [][]diff.Delta{r.Added, r.Removed, r.Changed} {
+		for _, d := range group {
+			if d.Before != nil && d.Before.Origin.SourceName != "" {
+				before[d.Before.Origin.SourceName] = true
+			}
+			if d.After != nil && d.After.Origin.SourceName != "" {
+				after[d.After.Origin.SourceName] = true
+			}
+		}
+	}
+	return len(before) > 1 || len(after) > 1
+}
+
+func sourceName(d diff.Delta) string {
+	if d.After != nil && d.After.Origin.SourceName != "" {
+		return d.After.Origin.SourceName
+	}
+	if d.Before != nil && d.Before.Origin.SourceName != "" {
+		return d.Before.Origin.SourceName
+	}
+	return ""
+}
+
+func section(w *bytes.Buffer, cat catalogue.Catalogue, title string, deltas []diff.Delta, showVia bool) {
 	if len(deltas) == 0 {
 		return
 	}
@@ -59,10 +115,10 @@ func section(w io.Writer, cat catalogue.Catalogue, title string, deltas []diff.D
 	for _, d := range deltas {
 		rank := severity.Classify(cat, d.Key.Action, nil)
 		via := ""
-		if d.After != nil && d.After.Origin.SourceName != "" {
-			via = "  via " + d.After.Origin.SourceName
-		} else if d.Before != nil && d.Before.Origin.SourceName != "" {
-			via = "  via " + d.Before.Origin.SourceName
+		if showVia {
+			if n := sourceName(d); n != "" {
+				via = "  via " + n
+			}
 		}
 		fmt.Fprintf(w, "  %s %-6s %-34s %s%s\n", d.Kind.Symbol(), rank, d.Key.Action, d.Key.Resource, via)
 	}
@@ -71,35 +127,75 @@ func section(w io.Writer, cat catalogue.Catalogue, title string, deltas []diff.D
 
 type JSON struct{}
 
-func (j *JSON) Render(w io.Writer, r diff.Result) error {
+type jsonEntry struct {
+	Principal model.Principal `json:"principal"`
+	diff.Result
+	Verdict  string `json:"verdict"`
+	ExitCode int    `json:"exit_code"`
+}
+
+func (j *JSON) Render(w io.Writer, rep diff.Report) error {
+	entries := make([]jsonEntry, 0, len(rep.Entries))
+	for _, e := range rep.Entries {
+		entries = append(entries, jsonEntry{
+			Principal: e.Principal,
+			Result:    e.Result,
+			Verdict:   string(e.Result.Verdict()),
+			ExitCode:  e.Result.ExitCode(),
+		})
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(struct {
-		diff.Result
-		Verdict  string `json:"verdict"`
-		ExitCode int    `json:"exit_code"`
-	}{Result: r, Verdict: string(r.Verdict()), ExitCode: r.ExitCode()})
+		Verdict    string      `json:"verdict"`
+		ExitCode   int         `json:"exit_code"`
+		Principals []jsonEntry `json:"principals"`
+	}{Verdict: string(rep.Verdict()), ExitCode: rep.ExitCode(), Principals: entries})
 }
 
 // Markdown is shaped for a pull-request comment.
 type Markdown struct{ cat catalogue.Catalogue }
 
-func (m *Markdown) Render(w io.Writer, r diff.Result) error {
-	fmt.Fprintf(w, "### iamdiff: **%s**\n\n", r.Verdict())
-	if r.Partial {
-		fmt.Fprint(w, "> **Incomplete evaluation.** Some policy sources could not be read; this result cannot rule out widened access.\n\n")
+func (m *Markdown) Render(w io.Writer, rep diff.Report) error {
+	var buf bytes.Buffer
+	b := &buf
+	fmt.Fprintf(b, "### iamdiff: **%s**\n\n", rep.Verdict())
+	if rep.Partial() {
+		fmt.Fprint(b, "> **Incomplete evaluation.** Some policy sources could not be read; this result cannot rule out widened access.\n")
+		for _, e := range rep.Entries {
+			for _, g := range e.Result.Gaps {
+				fmt.Fprintf(b, "> - %s\n", g)
+			}
+		}
+		fmt.Fprintln(b)
 	}
-	if r.Empty() {
-		fmt.Fprintln(w, "No effective permission change.")
-		return nil
+	if rep.Empty() {
+		fmt.Fprintln(b, "No effective permission change.")
+		_, err := w.Write(buf.Bytes())
+		return err
 	}
-	fmt.Fprintln(w, "| | Severity | Action | Resource |")
-	fmt.Fprintln(w, "|---|---|---|---|")
-	for _, group := range [][]diff.Delta{r.Added, r.Removed, r.Changed} {
-		for _, d := range group {
-			fmt.Fprintf(w, "| `%s` | %s | `%s` | `%s` |\n",
-				d.Kind.Symbol(), severity.Classify(m.cat, d.Key.Action, nil), d.Key.Action, d.Key.Resource)
+	multi := len(rep.Entries) > 1
+	for _, e := range rep.Entries {
+		if multi {
+			fmt.Fprintf(b, "#### `%s` — %s\n\n", label(e.Principal), e.Result.Verdict())
+		}
+		if e.Result.Empty() {
+			fmt.Fprintln(b, "No effective permission change.")
+			fmt.Fprintln(b)
+			continue
+		}
+		fmt.Fprintln(b, "| | Severity | Action | Resource |")
+		fmt.Fprintln(b, "|---|---|---|---|")
+		for _, group := range [][]diff.Delta{e.Result.Added, e.Result.Removed, e.Result.Changed} {
+			for _, d := range group {
+				fmt.Fprintf(b, "| `%s` | %s | `%s` | `%s` |\n",
+					d.Kind.Symbol(), severity.Classify(m.cat, d.Key.Action, nil), d.Key.Action, d.Key.Resource)
+			}
+		}
+		if multi {
+			fmt.Fprintln(b)
 		}
 	}
-	return nil
+	_, err := w.Write(buf.Bytes())
+	return err
 }

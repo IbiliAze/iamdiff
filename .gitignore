@@ -3,3 +3,4 @@ dist/
 coverage.out
 *.plan
 .iamdiff.yaml
+.DS_Store

@@ -19,46 +19,127 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
+
+// Package cmd is the command surface. Each command is a cobra.Command
+// built by a constructor; nothing lives in package-level state, so a
+// test can execute the tree as many times as it likes.
 package cmd
 
 import (
-	"os"
+	"context"
+	"errors"
+	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
+
+	"github.com/IbiliAze/iamdiff/internal/catalogue"
+	"github.com/IbiliAze/iamdiff/internal/provider"
+	"github.com/IbiliAze/iamdiff/internal/render"
 )
 
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
-	Use:   "iamdiff",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+var (
+	buildVersion = "dev"
+	buildCommit  = "none"
+	buildDate    = "unknown"
+)
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
+// SetVersion records the build metadata the linker injects into main.
+func SetVersion(version, commit, date string) {
+	buildVersion, buildCommit, buildDate = version, commit, date
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
-		os.Exit(1)
+// NewRoot builds a fresh command tree.
+func NewRoot() *cobra.Command {
+	root := &cobra.Command{
+		Use:   "iamdiff",
+		Short: "Effective cloud IAM permissions diff and explanation",
+		Long: `iamdiff resolves what a principal can actually do by composing identity
+policies, permissions boundaries and organisation guardrails, then diffs
+two resolved sets. It answers one question inside a pull request review:
+did this change widen access, and why?
+
+Exit codes are the contract:
+
+  0  unchanged
+  1  narrowed only
+  2  widened
+  3  indeterminate - a condition changed; review manually
+  4  incomplete - a policy source could not be read
+  64 bad command line
+  70 failure at run time`,
+		Version:       buildVersion,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
+	root.SetVersionTemplate("iamdiff {{.Version}}\n")
+	root.PersistentFlags().String("provider", "aws", "cloud provider")
+	root.PersistentFlags().String("output", "text", "output format: text, json, markdown")
+	root.PersistentFlags().String("profile", "", "credentials profile for commands that talk to the cloud")
+
+	root.AddCommand(
+		newPolicyCmd(),
+		newPlanCmd(),
+		newRolesCmd(),
+		newCollectCmd(),
+		newExplainCmd(),
+		newProvidersCmd(),
+		newVersionCmd(),
+	)
+	return root
 }
 
-func init() {
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
+// Execute runs the CLI with the given arguments and returns the process
+// exit code. Verdict codes pass through untouched; anything cobra rejects
+// before a command runs is a usage error.
+func Execute(ctx context.Context, args []string, out, errw io.Writer) int {
+	root := NewRoot()
+	root.SetArgs(args)
+	root.SetOut(out)
+	root.SetErr(errw)
 
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.iamdiff.yaml)")
+	cmd, err := root.ExecuteContextC(ctx)
+	if err == nil {
+		return 0
+	}
 
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	var ee *exitError
+	if errors.As(err, &ee) {
+		if ee.err != nil {
+			fmt.Fprintf(errw, "iamdiff: %v\n", ee.err)
+		}
+		return ee.code
+	}
+
+	fmt.Fprintf(errw, "iamdiff: %v\n", err)
+	if cmd != nil {
+		fmt.Fprintf(errw, "Run '%s --help' for usage.\n", cmd.CommandPath())
+	}
+	return ExitUsage
+}
+
+// openProvider constructs the provider named by the persistent flags.
+func openProvider(cmd *cobra.Command, offline bool) (provider.Provider, error) {
+	name, _ := cmd.Flags().GetString("provider")
+	profile, _ := cmd.Flags().GetString("profile")
+	p, err := provider.Open(name, provider.Config{Profile: profile, Offline: offline})
+	if err != nil {
+		return nil, usageErr("%v", err)
+	}
+	return p, nil
+}
+
+// newRenderer selects the renderer named by --output, feeding it the
+// provider's catalogue when it has one.
+func newRenderer(cmd *cobra.Command, p provider.Provider) (render.Renderer, error) {
+	format, _ := cmd.Flags().GetString("output")
+	var cat catalogue.Catalogue
+	if c, ok := p.(provider.Cataloguer); ok {
+		cat = c.Catalogue()
+	}
+	r, err := render.New(format, cat)
+	if err != nil {
+		return nil, usageErr("%v", err)
+	}
+	return r, nil
 }
