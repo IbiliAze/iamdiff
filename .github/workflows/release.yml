@@ -8,7 +8,26 @@ permissions:
   contents: write
 
 jobs:
+  # Dependency gate, the same job as ci.yml's `audit` (a workflow cannot
+  # need a job in another file). A tag whose code reaches a known
+  # vulnerability is not released.
+  audit:
+    name: test:audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # setup-go installs go.mod's toolchain Go, so the scan judges the
+      # standard library the release ships with.
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - run: govulncheck ./...
+
   goreleaser:
+    needs: audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

@@ -19,6 +19,24 @@ jobs:
       - run: go vet ./...
       - run: go test -race -count=1 ./...
 
+  # Dependency gate; release.yml runs the same job before goreleaser.
+  # govulncheck fails on any known vulnerability the code can actually reach,
+  # in a module or in the standard library of the Go that setup-go installs
+  # (the one release builds use). Unreachable ones are reported, not failed.
+  # It installs only itself; the analysis builds nothing we ship.
+  audit:
+    name: test:audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # setup-go installs go.mod's toolchain Go, so the scan judges the
+      # standard library the release ships with.
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - run: govulncheck ./...
+
   lint:
     runs-on: ubuntu-latest
     steps:

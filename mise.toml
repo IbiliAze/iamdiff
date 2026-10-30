@@ -1,0 +1,6 @@
+# Go follows go.mod's toolchain line, go1.26.10, which setup-go installs in
+# CI and release builds use. go.mod's `go 1.24` stays the minimum for
+# `go install` users; the toolchain line is what fixes the standard library
+# advisories govulncheck reports for Go 1.24.
+[tools]
+go = "1.26.10"
